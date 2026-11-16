@@ -1,69 +1,278 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useState, useEffect, useCallback } from "react";
+import { UserRole, CourtCase, UserProfile } from "@/lib/types";
+import {
+  MOCK_CASES,
+  MOCK_PRECEDENTS,
+  MOCK_MODEL_METRICS,
+  MOCK_FEATURE_IMPORTANCE,
+} from "@/lib/mockData";
+import {
+  fetchCurrentUser,
+  switchDemoRole,
+  fetchCases,
+  registerNewCase,
+  clearStoredToken,
+} from "@/lib/api";
+import { Header } from "@/components/Header";
+import { Sidebar, NavTab } from "@/components/Sidebar";
+import { DashboardView } from "@/components/views/DashboardView";
+import { ResearchView } from "@/components/views/ResearchView";
+import { CasesView } from "@/components/views/CasesView";
+import { CaseDetailView } from "@/components/views/CaseDetailView";
+import { PriorityQueueView } from "@/components/views/PriorityQueueView";
+import { ModelReportView } from "@/components/views/ModelReportView";
+
+export default function CaseLensApp() {
+  const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
+  const [userRole, setUserRole] = useState<UserRole>("judge");
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [selectedBench, setSelectedBench] = useState<string>("all");
+  const [cases, setCases] = useState<CourtCase[]>(MOCK_CASES);
+  const [selectedCaseId, setSelectedCaseId] = useState<string>("case-001");
+  const [researchQuery, setResearchQuery] = useState<string>("");
+  const [isLoadingCases, setIsLoadingCases] = useState<boolean>(false);
+
+  // 1. Load initial user profile & check auth session
+  useEffect(() => {
+    async function initAuth() {
+      const user = await fetchCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+        setUserRole(user.role);
+      } else {
+        // Automatically acquire default judge demo token
+        const demoJudge = await switchDemoRole("judge");
+        if (demoJudge) {
+          setCurrentUser(demoJudge);
+          setUserRole(demoJudge.role);
+        }
+      }
+    }
+    initAuth();
+  }, []);
+
+  // 2. Load Cases from real API
+  const loadCases = useCallback(async (court?: string) => {
+    setIsLoadingCases(true);
+    try {
+      const res = await fetchCases(court);
+      if (res.cases && res.cases.length > 0) {
+        setCases(res.cases);
+        setSelectedCaseId(res.cases[0].id);
+      } else {
+        // Fallback to sample mock data if DB is empty
+        setCases(MOCK_CASES);
+      }
+    } catch {
+      setCases(MOCK_CASES);
+    } finally {
+      setIsLoadingCases(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCases(selectedBench);
+  }, [selectedBench, loadCases]);
+
+  // Handle role switch (with real JWT token exchange)
+  const handleRoleChange = async (role: UserRole) => {
+    setUserRole(role);
+    const updatedUser = await switchDemoRole(role);
+    if (updatedUser) {
+      setCurrentUser(updatedUser);
+    }
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    clearStoredToken();
+    const clerkUser = await switchDemoRole("clerk");
+    if (clerkUser) {
+      setCurrentUser(clerkUser);
+      setUserRole(clerkUser.role);
+    }
+  };
+
+  const selectedCase =
+    cases.find((c) => c.id === selectedCaseId) || cases[0] || MOCK_CASES[0];
+
+  const urgentCount = cases.filter(
+    (c) => c.prediction.priorityScore >= 75
+  ).length;
+
+  // Global Keyboard Shortcuts (1-6 for tabs)
+  useEffect(() => {
+    const handleGlobalKeys = (e: KeyboardEvent) => {
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      if (e.key === "1") setActiveTab("dashboard");
+      else if (e.key === "2") setActiveTab("research");
+      else if (e.key === "3") setActiveTab("cases");
+      else if (e.key === "4") setActiveTab("case-detail");
+      else if (e.key === "5") setActiveTab("queue");
+      else if (e.key === "6") setActiveTab("model-report");
+    };
+
+    window.addEventListener("keydown", handleGlobalKeys);
+    return () => window.removeEventListener("keydown", handleGlobalKeys);
+  }, []);
+
+  const handleSelectCase = (caseId: string) => {
+    setSelectedCaseId(caseId);
+    setActiveTab("case-detail");
+  };
+
+  const handleNavigateToResearch = (query?: string) => {
+    if (query) setResearchQuery(query);
+    setActiveTab("research");
+  };
+
+  // Register New Case (persists to backend database)
+  const handleAddNewCase = async (newCaseData: Partial<CourtCase>) => {
+    try {
+      const created = await registerNewCase({
+        caseNo: newCaseData.caseNo || `NEW/${new Date().getFullYear()}`,
+        caseType: newCaseData.caseType || "CRL.A",
+        court: newCaseData.court || "Supreme Court of India",
+        filingDate: newCaseData.filingDate || new Date().toISOString().split("T")[0],
+        hearingsCount: newCaseData.hearingsCount || 1,
+        description: newCaseData.description || "Fresh filing awaiting hearing.",
+      });
+
+      if (created) {
+        setCases((prev) => [created, ...prev]);
+        setSelectedCaseId(created.id);
+        setActiveTab("case-detail");
+        return;
+      }
+    } catch (err) {
+      console.warn("Backend registration failed, adding to local state:", err);
+    }
+
+    // Client-side fallback if network fails
+    const newCase: CourtCase = {
+      id: `case-${Date.now()}`,
+      caseNo: newCaseData.caseNo || "NEW/2024",
+      caseType: newCaseData.caseType || "CRL.A",
+      court: newCaseData.court || "Supreme Court of India",
+      filingDate: newCaseData.filingDate || new Date().toISOString().split("T")[0],
+      hearingsCount: newCaseData.hearingsCount || 1,
+      status: newCaseData.status || "pending",
+      bench: newCaseData.bench || "Admission Court",
+      petitioner: newCaseData.petitioner || "Petitioner",
+      respondent: newCaseData.respondent || "Respondent",
+      actsSections: newCaseData.actsSections || ["Constitution Art. 226"],
+      description: newCaseData.description || "Fresh petition registered.",
+      top1Similarity: newCaseData.top1Similarity || 0.75,
+      meanTop5Similarity: newCaseData.meanTop5Similarity || 0.68,
+      countAboveThreshold: newCaseData.countAboveThreshold || 2,
+      matchedPrecedentIds: newCaseData.matchedPrecedentIds || ["prec-001"],
+      prediction: newCaseData.prediction || {
+        predictedDays: 120,
+        complexity: "Medium",
+        priorityScore: 70.0,
+        confidenceIntervalDays: [95, 145],
+        precedentConfidence: 0.8,
+        shapFactors: [
+          {
+            feature: "Fresh Registration",
+            impact: "increases_delay",
+            impactDays: 25,
+            plainEnglishReason: "Initial docket admission notice required.",
+          },
+        ],
+      },
+    };
+
+    setCases((prev) => [newCase, ...prev]);
+    setSelectedCaseId(newCase.id);
+    setActiveTab("case-detail");
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="min-h-screen bg-[#fcfbf9] text-[#171a1d] flex flex-col font-sans selection:bg-[#1c3838] selection:text-white">
+      {/* Real Institutional Header */}
+      <Header
+        currentRole={userRole}
+        currentUser={currentUser}
+        onRoleChange={handleRoleChange}
+        activeCaseCount={cases.length}
+        selectedBench={selectedBench}
+        onBenchChange={setSelectedBench}
+        onLogout={handleLogout}
+      />
+
+      {/* Main Container: Sidebar + Active View Workspace */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Institutional Left Sidebar */}
+        <Sidebar
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          selectedCaseNo={selectedCase?.caseNo}
+          urgentQueueCount={urgentCount}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+
+        {/* Center Workspace Area */}
+        <main className="flex-1 overflow-y-auto p-6 md:p-8 max-w-7xl">
+          {activeTab === "dashboard" && (
+            <DashboardView
+              cases={cases}
+              precedents={MOCK_PRECEDENTS}
+              onSelectCase={handleSelectCase}
+              onNavigateToResearch={handleNavigateToResearch}
+              onNavigateToQueue={() => setActiveTab("queue")}
+              onNavigateToCases={() => setActiveTab("cases")}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+          )}
+
+          {activeTab === "research" && (
+            <ResearchView
+              precedents={MOCK_PRECEDENTS}
+              initialQuery={researchQuery}
+              onSelectCaseWithPrecedent={handleSelectCase}
+            />
+          )}
+
+          {activeTab === "cases" && (
+            <CasesView
+              cases={cases}
+              onSelectCase={handleSelectCase}
+              onAddNewCase={handleAddNewCase}
+            />
+          )}
+
+          {activeTab === "case-detail" && (
+            <CaseDetailView
+              currentCase={selectedCase}
+              precedents={MOCK_PRECEDENTS}
+              allCases={cases}
+              onSelectAnotherCase={setSelectedCaseId}
+              onNavigateToResearch={handleNavigateToResearch}
+            />
+          )}
+
+          {activeTab === "queue" && (
+            <PriorityQueueView
+              cases={cases}
+              onSelectCase={handleSelectCase}
+            />
+          )}
+
+          {activeTab === "model-report" && (
+            <ModelReportView
+              metrics={MOCK_MODEL_METRICS}
+              featureImportance={MOCK_FEATURE_IMPORTANCE}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
 }
