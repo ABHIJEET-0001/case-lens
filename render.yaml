@@ -1,0 +1,53 @@
+services:
+  # ── FASTAPI BACKEND SERVICE (Docker) ──
+  - type: web
+    name: caselens-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: caselens-postgres
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 120
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://caselens-web.onrender.com,http://localhost:3000
+      - key: DEMO_MODE
+        value: "false"
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: INDEX_DIR
+        value: /app/data/index
+
+  # ── NEXT.JS FRONTEND SERVICE (Node) ──
+  - type: web
+    name: caselens-web
+    runtime: node
+    plan: free
+    buildCommand: npm install && npx next build --webpack
+    startCommand: npx next start -p $PORT
+    envVars:
+      - key: BACKEND_URL
+        fromService:
+          type: web
+          name: caselens-api
+          property: host
+      - key: NEXT_PUBLIC_DEMO_MODE
+        value: "false"
+
+databases:
+  # ── POSTGRESQL MANAGED DATABASE ──
+  - name: caselens-postgres
+    plan: free
+    databaseName: caselens_db
+    user: caselens

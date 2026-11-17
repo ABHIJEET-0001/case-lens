@@ -28,7 +28,7 @@ app = FastAPI(
 # Allow the frontend to call the API during development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,18 +50,33 @@ app.include_router(predictions_router, prefix="/api")
 @app.get("/api/v1/health", tags=["ops"])
 def health_check(db: Session = Depends(get_db)):
     """
-    Returns 200 when the API is up and the database is reachable.
-    Used by Docker health-checks and the frontend status indicator.
+    Three-state health: ok (DB connected + index loaded), degraded (DB ok, no index), error (DB down).
     """
+    import os
     try:
         db.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as exc:
         db_status = f"error: {exc}"
 
+    # Check FAISS index
+    index_path = os.path.join(os.path.dirname(__file__), "../../data/faiss_index.bin")
+    index_loaded = os.path.isfile(index_path)
+
+    # Determine overall status
+    if db_status == "connected" and index_loaded:
+        overall = "ok"
+    elif db_status == "connected":
+        overall = "degraded"
+    else:
+        overall = "error"
+
     return {
-        "status": "ok",
+        "status": overall,
         "db": db_status,
+        "index_loaded": index_loaded,
+        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "embedding_dimension": 384,
         "environment": settings.environment,
         "version": "0.1.0",
     }

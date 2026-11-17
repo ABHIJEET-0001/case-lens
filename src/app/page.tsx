@@ -1,19 +1,15 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { UserRole, CourtCase, UserProfile } from "@/lib/types";
-import {
-  MOCK_CASES,
-  MOCK_PRECEDENTS,
-  MOCK_MODEL_METRICS,
-  MOCK_FEATURE_IMPORTANCE,
-} from "@/lib/mockData";
+import { UserRole, CourtCase, UserProfile, TableDensity, Precedent, ModelMetricComparison, FeatureImportance } from "@/lib/types";
 import {
   fetchCurrentUser,
   switchDemoRole,
   fetchCases,
   registerNewCase,
   clearStoredToken,
+  fetchModelMetrics,
+  searchPrecedents,
 } from "@/lib/api";
 import { Header } from "@/components/Header";
 import { Sidebar, NavTab } from "@/components/Sidebar";
@@ -23,16 +19,36 @@ import { CasesView } from "@/components/views/CasesView";
 import { CaseDetailView } from "@/components/views/CaseDetailView";
 import { PriorityQueueView } from "@/components/views/PriorityQueueView";
 import { ModelReportView } from "@/components/views/ModelReportView";
+import { SettingsView } from "@/components/views/SettingsView";
 
 export default function CaseLensApp() {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
   const [userRole, setUserRole] = useState<UserRole>("judge");
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [selectedBench, setSelectedBench] = useState<string>("all");
-  const [cases, setCases] = useState<CourtCase[]>(MOCK_CASES);
-  const [selectedCaseId, setSelectedCaseId] = useState<string>("case-001");
+  const [cases, setCases] = useState<CourtCase[]>([]);
+  const [precedents, setPrecedents] = useState<Precedent[]>([]);
+  const [modelMetrics, setModelMetrics] = useState<ModelMetricComparison[]>([]);
+  const [featureImportance, setFeatureImportance] = useState<FeatureImportance[]>([]);
+  const [selectedCaseId, setSelectedCaseId] = useState<string>("");
   const [researchQuery, setResearchQuery] = useState<string>("");
   const [isLoadingCases, setIsLoadingCases] = useState<boolean>(false);
+  const [casesError, setCasesError] = useState<string | null>(null);
+  const [tableDensity, setTableDensity] = useState<TableDensity>("comfortable");
+
+  // Tab titles
+  useEffect(() => {
+    const titles: Record<NavTab, string> = {
+      dashboard: "CaseLens - Judicial Overview",
+      research: "CaseLens - Precedent Research",
+      cases: "CaseLens - Pending Cases Register",
+      "case-detail": "CaseLens - Case Dossier",
+      queue: "CaseLens - Priority Queue",
+      "model-report": "CaseLens - Model Benchmark Report",
+      settings: "CaseLens - System Settings & Diagnostics",
+    };
+    document.title = titles[activeTab] || "CaseLens";
+  }, [activeTab]);
 
   // 1. Load initial user profile & check auth session
   useEffect(() => {
@@ -56,17 +72,18 @@ export default function CaseLensApp() {
   // 2. Load Cases from real API
   const loadCases = useCallback(async (court?: string) => {
     setIsLoadingCases(true);
+    setCasesError(null);
     try {
       const res = await fetchCases(court);
+      setCases(res.cases || []);
       if (res.cases && res.cases.length > 0) {
-        setCases(res.cases);
-        setSelectedCaseId(res.cases[0].id);
+        setSelectedCaseId((prev) => (prev && res.cases.some((c) => c.id === prev) ? prev : res.cases[0].id));
       } else {
-        // Fallback to sample mock data if DB is empty
-        setCases(MOCK_CASES);
+        setSelectedCaseId("");
       }
-    } catch {
-      setCases(MOCK_CASES);
+    } catch (err: any) {
+      setCases([]);
+      setCasesError(err?.message || "Failed to contact registry backend.");
     } finally {
       setIsLoadingCases(false);
     }
@@ -75,6 +92,19 @@ export default function CaseLensApp() {
   useEffect(() => {
     loadCases(selectedBench);
   }, [selectedBench, loadCases]);
+
+  // 3. Load Precedents & Model Report metrics from real API
+  useEffect(() => {
+    searchPrecedents("Article 21 bail delay", "hybrid").then((res) => {
+      setPrecedents(res);
+    });
+    fetchModelMetrics().then((res) => {
+      if (res) {
+        setModelMetrics(res.metrics);
+        setFeatureImportance(res.featureImportance);
+      }
+    });
+  }, []);
 
   // Handle role switch (with real JWT token exchange)
   const handleRoleChange = async (role: UserRole) => {
@@ -96,7 +126,7 @@ export default function CaseLensApp() {
   };
 
   const selectedCase =
-    cases.find((c) => c.id === selectedCaseId) || cases[0] || MOCK_CASES[0];
+    cases.find((c) => c.id === selectedCaseId) || cases[0] || null;
 
   const urgentCount = cases.filter(
     (c) => c.prediction.priorityScore >= 75
@@ -118,6 +148,7 @@ export default function CaseLensApp() {
       else if (e.key === "4") setActiveTab("case-detail");
       else if (e.key === "5") setActiveTab("queue");
       else if (e.key === "6") setActiveTab("model-report");
+      else if (e.key === "7") setActiveTab("settings");
     };
 
     window.addEventListener("keydown", handleGlobalKeys);
@@ -202,11 +233,11 @@ export default function CaseLensApp() {
       <Header
         currentRole={userRole}
         currentUser={currentUser}
-        onRoleChange={handleRoleChange}
         activeCaseCount={cases.length}
         selectedBench={selectedBench}
         onBenchChange={setSelectedBench}
         onLogout={handleLogout}
+        onOpenSettings={() => setActiveTab("settings")}
       />
 
       {/* Main Container: Sidebar + Active View Workspace */}
@@ -224,7 +255,7 @@ export default function CaseLensApp() {
           {activeTab === "dashboard" && (
             <DashboardView
               cases={cases}
-              precedents={MOCK_PRECEDENTS}
+              precedents={precedents}
               onSelectCase={handleSelectCase}
               onNavigateToResearch={handleNavigateToResearch}
               onNavigateToQueue={() => setActiveTab("queue")}
@@ -234,7 +265,7 @@ export default function CaseLensApp() {
 
           {activeTab === "research" && (
             <ResearchView
-              precedents={MOCK_PRECEDENTS}
+              precedents={precedents}
               initialQuery={researchQuery}
               onSelectCaseWithPrecedent={handleSelectCase}
             />
@@ -245,16 +276,21 @@ export default function CaseLensApp() {
               cases={cases}
               onSelectCase={handleSelectCase}
               onAddNewCase={handleAddNewCase}
+              tableDensity={tableDensity}
+              isLoading={isLoadingCases}
+              error={casesError}
+              onRetry={() => loadCases(selectedBench)}
             />
           )}
 
           {activeTab === "case-detail" && (
             <CaseDetailView
               currentCase={selectedCase}
-              precedents={MOCK_PRECEDENTS}
+              precedents={precedents}
               allCases={cases}
               onSelectAnotherCase={setSelectedCaseId}
               onNavigateToResearch={handleNavigateToResearch}
+              isLoading={isLoadingCases}
             />
           )}
 
@@ -262,17 +298,35 @@ export default function CaseLensApp() {
             <PriorityQueueView
               cases={cases}
               onSelectCase={handleSelectCase}
+              isLoading={isLoadingCases}
             />
           )}
 
           {activeTab === "model-report" && (
             <ModelReportView
-              metrics={MOCK_MODEL_METRICS}
-              featureImportance={MOCK_FEATURE_IMPORTANCE}
+              metrics={modelMetrics}
+              featureImportance={featureImportance}
+            />
+          )}
+
+          {activeTab === "settings" && (
+            <SettingsView
+              currentUser={currentUser}
+              currentRole={userRole}
+              onRoleChange={handleRoleChange}
+              selectedBench={selectedBench}
+              onBenchChange={setSelectedBench}
+              tableDensity={tableDensity}
+              onDensityChange={setTableDensity}
             />
           )}
         </main>
       </div>
+
+      {/* Institutional Legal Disclaimer Footer */}
+      <footer className="border-t border-[#e2ded6] bg-[#f7f5f0] px-6 py-2.5 text-center text-xs text-[#6b7280]">
+        CaseLens is a decision-support tool, not legal advice or a judicial determination.
+      </footer>
     </div>
   );
 }

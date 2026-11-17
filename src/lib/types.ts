@@ -5,6 +5,24 @@
 
 export type UserRole = "clerk" | "researcher" | "judge";
 
+export type TableDensity = "compact" | "comfortable";
+
+export interface SystemStatusTelemetry {
+  backend: string;
+  database: string;
+  db_judgments_count: number;
+  db_pending_cases_count: number;
+  faiss_index_exists: boolean;
+  faiss_vector_count: number;
+  embedding_model: string;
+  embedding_dimension: number;
+  distance_metric: string;
+  gemini_api_configured: boolean;
+  summarizer_mode: string;
+  version: string;
+  environment: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string;

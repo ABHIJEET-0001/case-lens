@@ -96,7 +96,7 @@ export function ResearchView({
             Indexed Judgments: <strong>{precedents.length}</strong>
           </span>
           <span className="bg-[#f0ece5] px-2.5 py-1 rounded border border-[#ddd8cc]">
-            Model: <strong>InLegalBERT (384d)</strong>
+            Model: <strong>all-MiniLM-L6-v2 (384d)</strong>
           </span>
         </div>
       </div>
@@ -218,9 +218,30 @@ export function ResearchView({
         <span className="text-[11px]">Sorted by Semantic Similarity Score</span>
       </div>
 
-      {/* Results List (NOT cards, per spec: title, court, date, citation in mono, similarity bar) */}
+      {/* Results List */}
       <div className="space-y-3">
-        {filteredPrecedents.map((p) => {
+        {filteredPrecedents.length === 0 ? (
+          <div className="bg-[#fcfbf9] border border-[#dedad0] rounded p-8 text-center text-xs space-y-2">
+            <div className="font-mono text-sm font-semibold text-[#16191c]">
+              No judicial authorities match the search criteria
+            </div>
+            <p className="text-[#636a73] max-w-md mx-auto leading-relaxed">
+              No judgments in the corpus match &ldquo;{query}&rdquo; under the selected court and case type filters. Try searching by broader legal doctrine (e.g. &ldquo;Article 21 speedy trial&rdquo; or &ldquo;Section 45 PMLA&rdquo;).
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setCourtFilter("all");
+                setCaseTypeFilter("all");
+              }}
+              className="mt-2 px-3 py-1 bg-[#1c3838] text-white font-mono rounded text-xs hover:bg-[#142828] transition-colors"
+            >
+              Reset Filters & View All Precedents
+            </button>
+          </div>
+        ) : (
+          filteredPrecedents.map((p) => {
           const isExpanded = expandedSummaryId === p.id;
           const isBookmarked = bookmarkedIds.includes(p.id);
 
@@ -361,7 +382,7 @@ export function ResearchView({
               </div>
             </div>
           );
-        })}
+        }))}
       </div>
 
       {/* Slide-over Panel: Read Full Judgment with highlighted passages */}

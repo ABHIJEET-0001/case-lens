@@ -1,0 +1,57 @@
+name: CaseLens Continuous Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest httpx
+          pip install -r backend/requirements.txt
+
+      - name: Run Ruff Linting
+        run: ruff check backend/
+
+      - name: Run Pytest Test Suite
+        env:
+          DATABASE_URL: sqlite:///:memory:
+          SECRET_KEY: test-secret-key-ci-environment
+          DEMO_MODE: "true"
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$(pwd)/backend:$(pwd)
+          pytest backend/tests/ -q
+
+  frontend-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Run TypeScript Typecheck
+        run: npx tsc --noEmit
+
+      - name: Run Next.js Production Build
+        run: npx next build --webpack

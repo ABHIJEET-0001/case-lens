@@ -28,6 +28,16 @@ class CasesService:
             raise ValueError(f"Case with number '{data.case_no}' is already registered.")
 
         created = self.repo.create(data)
+
+        # Trigger live precedent feature extraction & prediction
+        try:
+            from app.services.prediction_service import PredictionService
+            pred_svc = PredictionService(self.db)
+            pred_svc.predict_for_case(created.id)
+            self.db.refresh(created)
+        except Exception:
+            pass
+
         return CaseResponseSchema.model_validate(created)
 
     def get_case_by_id(self, case_id: UUID) -> CaseResponseSchema:
@@ -58,6 +68,17 @@ class CasesService:
             raise ValueError(f"Case with ID '{case_id}' not found.")
 
         updated = self.repo.update(case, data)
+
+        # Re-compute features & prediction if relevant attributes changed
+        if data.description or data.hearings_count is not None:
+            try:
+                from app.services.prediction_service import PredictionService
+                pred_svc = PredictionService(self.db)
+                pred_svc.predict_for_case(updated.id)
+                self.db.refresh(updated)
+            except Exception:
+                pass
+
         return CaseResponseSchema.model_validate(updated)
 
     def delete_case(self, case_id: UUID) -> None:

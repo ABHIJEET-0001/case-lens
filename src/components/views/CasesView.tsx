@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { CourtCase, CaseStatus } from "@/lib/types";
+import { CourtCase, CaseStatus, TableDensity } from "@/lib/types";
 import {
   FileTextIcon,
   FilterIcon,
@@ -14,9 +14,21 @@ interface CasesViewProps {
   cases: CourtCase[];
   onSelectCase: (caseId: string) => void;
   onAddNewCase: (newCase: Partial<CourtCase>) => void;
+  tableDensity?: TableDensity;
+  isLoading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
-export function CasesView({ cases, onSelectCase, onAddNewCase }: CasesViewProps) {
+export function CasesView({
+  cases,
+  onSelectCase,
+  onAddNewCase,
+  tableDensity = "compact",
+  isLoading = false,
+  error = null,
+  onRetry,
+}: CasesViewProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [courtFilter, setCourtFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -72,6 +84,8 @@ export function CasesView({ cases, onSelectCase, onAddNewCase }: CasesViewProps)
       }
       return sortOrder === "asc" ? -comparison : comparison;
     });
+
+  const cellPad = tableDensity === "compact" ? "py-2 px-3" : "py-3 px-3.5";
 
   const handleCreateCase = (e: React.FormEvent) => {
     e.preventDefault();
@@ -222,95 +236,145 @@ export function CasesView({ cases, onSelectCase, onAddNewCase }: CasesViewProps)
             </tr>
           </thead>
           <tbody className="divide-y divide-[#ede9e1] font-sans">
-            {filteredCases.map((c) => (
-              <tr
-                key={c.id}
-                onClick={() => onSelectCase(c.id)}
-                className="hover:bg-[#f6f4ee] transition-colors cursor-pointer group"
-              >
-                {/* Case Number */}
-                <td className="py-3 px-3 font-mono font-bold text-[#16191c] whitespace-nowrap">
-                  {c.caseNo}
-                </td>
-
-                {/* Parties */}
-                <td className="py-3 px-3 max-w-xs">
-                  <div className="font-medium text-[#181a1d] truncate">
-                    {c.petitioner} vs {c.respondent}
+            {isLoading ? (
+              [1, 2, 3, 4, 5].map((i) => (
+                <tr key={i} className="animate-pulse">
+                  <td className={cellPad}><div className="h-3.5 bg-[#eae6dc] rounded w-28"></div></td>
+                  <td className={cellPad}><div className="h-3.5 bg-[#eae6dc] rounded w-44"></div></td>
+                  <td className={cellPad}><div className="h-3.5 bg-[#eae6dc] rounded w-28"></div></td>
+                  <td className={cellPad}><div className="h-3.5 bg-[#eae6dc] rounded w-20"></div></td>
+                  <td className={`${cellPad} text-center`}><div className="h-3.5 bg-[#eae6dc] rounded w-8 mx-auto"></div></td>
+                  <td className={`${cellPad} text-center`}><div className="h-3.5 bg-[#eae6dc] rounded w-16 mx-auto"></div></td>
+                  <td className={`${cellPad} text-right`}><div className="h-3.5 bg-[#eae6dc] rounded w-16 ml-auto"></div></td>
+                  <td className={`${cellPad} text-right`}><div className="h-3.5 bg-[#eae6dc] rounded w-12 ml-auto"></div></td>
+                  <td className={`${cellPad} text-right`}><div className="h-3.5 bg-[#eae6dc] rounded w-10 ml-auto"></div></td>
+                  <td className={`${cellPad} text-center`}><div className="h-3.5 bg-[#eae6dc] rounded w-12 mx-auto"></div></td>
+                </tr>
+              ))
+            ) : error ? (
+              <tr>
+                <td colSpan={10} className="p-8 text-center text-xs">
+                  <div className="text-[#73202f] font-mono font-bold mb-1">
+                    Failed to synchronize registry docket from database
                   </div>
-                  <div className="text-[11px] text-[#636a73] line-clamp-1 mt-0.5">
-                    {c.description}
-                  </div>
-                </td>
-
-                {/* Court */}
-                <td className="py-3 px-3 text-[#444950] whitespace-nowrap">
-                  <div className="font-medium">{c.court}</div>
-                  <div className="text-[11px] text-[#737a82] font-mono">{c.bench}</div>
-                </td>
-
-                {/* Filing Date */}
-                <td className="py-3 px-3 font-mono text-[#52575f] whitespace-nowrap">
-                  {c.filingDate}
-                </td>
-
-                {/* Hearings */}
-                <td className="py-3 px-3 font-mono text-center font-semibold text-[#181a1d]">
-                  {c.hearingsCount}
-                </td>
-
-                {/* Stage */}
-                <td className="py-3 px-3 text-center whitespace-nowrap">
-                  <span
-                    className={`font-mono text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${
-                      c.status === "reserved"
-                        ? "bg-[#eaf4ed] text-[#1f5938] border-[#c0dfc9]"
-                        : c.status === "hearing"
-                        ? "bg-[#fcf5e8] text-[#8c6218] border-[#f0debe]"
-                        : "bg-[#edf1f7] text-[#1d4875] border-[#c8d8ec]"
-                    }`}
-                  >
-                    {c.status}
-                  </span>
-                </td>
-
-                {/* Top Precedent Similarity */}
-                <td className="py-3 px-3 font-mono text-right whitespace-nowrap">
-                  <div className="font-bold text-[#1c3838]">
-                    {(c.top1Similarity * 100).toFixed(1)}%
-                  </div>
-                  <div className="text-[10px] text-[#787f8a]">
-                    {c.countAboveThreshold} matches &gt; 0.65
-                  </div>
-                </td>
-
-                {/* Predicted Days */}
-                <td className="py-3 px-3 font-mono text-right font-bold text-[#181a1d] whitespace-nowrap">
-                  {c.prediction.predictedDays} d
-                </td>
-
-                {/* Priority */}
-                <td className="py-3 px-3 font-mono text-right whitespace-nowrap">
-                  <span
-                    className={`font-bold ${
-                      c.prediction.priorityScore >= 75
-                        ? "text-[#73202f]"
-                        : "text-[#555a62]"
-                    }`}
-                  >
-                    {c.prediction.priorityScore.toFixed(1)}
-                  </span>
-                </td>
-
-                {/* Action */}
-                <td className="py-3 px-3 text-center whitespace-nowrap">
-                  <span className="text-xs font-mono text-[#1c3838] group-hover:underline flex items-center justify-center space-x-0.5 font-medium">
-                    <span>Inspect</span>
-                    <ChevronRightIcon className="w-3.5 h-3.5" />
-                  </span>
+                  <div className="text-[#636a73] mb-3">{error}</div>
+                  {onRetry && (
+                    <button
+                      onClick={onRetry}
+                      className="px-3 py-1 bg-[#1c3838] text-white font-mono rounded text-xs hover:bg-[#142828]"
+                    >
+                      Retry Connection
+                    </button>
+                  )}
                 </td>
               </tr>
-            ))}
+            ) : filteredCases.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="p-8 text-center text-xs font-mono text-[#636a73]">
+                  No active court cases match the selected filter criteria.
+                  <button
+                    onClick={() => {
+                      setCourtFilter("all");
+                      setStatusFilter("all");
+                      setSearchTerm("");
+                    }}
+                    className="ml-2 text-[#1c3838] underline font-bold"
+                  >
+                    Clear Filters
+                  </button>
+                </td>
+              </tr>
+            ) : (
+              filteredCases.map((c) => (
+                <tr
+                  key={c.id}
+                  onClick={() => onSelectCase(c.id)}
+                  className="hover:bg-[#f6f4ee] transition-colors cursor-pointer group"
+                >
+                  {/* Case Number */}
+                  <td className={`${cellPad} font-mono font-bold text-[#16191c] whitespace-nowrap`}>
+                    {c.caseNo}
+                  </td>
+
+                  {/* Parties */}
+                  <td className={`${cellPad} max-w-xs`}>
+                    <div className="font-medium text-[#181a1d] truncate">
+                      {c.petitioner} vs {c.respondent}
+                    </div>
+                    <div className="text-[11px] text-[#636a73] line-clamp-1 mt-0.5">
+                      {c.description}
+                    </div>
+                  </td>
+
+                  {/* Court */}
+                  <td className={`${cellPad} text-[#444950] whitespace-nowrap`}>
+                    <div className="font-medium">{c.court}</div>
+                    <div className="text-[11px] text-[#737a82] font-mono">{c.bench}</div>
+                  </td>
+
+                  {/* Filing Date */}
+                  <td className={`${cellPad} font-mono text-[#52575f] whitespace-nowrap`}>
+                    {c.filingDate}
+                  </td>
+
+                  {/* Hearings */}
+                  <td className={`${cellPad} font-mono text-center font-semibold text-[#181a1d]`}>
+                    {c.hearingsCount}
+                  </td>
+
+                  {/* Stage */}
+                  <td className={`${cellPad} text-center whitespace-nowrap`}>
+                    <span
+                      className={`font-mono text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${
+                        c.status === "reserved"
+                          ? "bg-[#eaf4ed] text-[#1f5938] border-[#c0dfc9]"
+                          : c.status === "hearing"
+                          ? "bg-[#fcf5e8] text-[#8c6218] border-[#f0debe]"
+                          : "bg-[#edf1f7] text-[#1d4875] border-[#c8d8ec]"
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </td>
+
+                  {/* Top Precedent Similarity */}
+                  <td className={`${cellPad} font-mono text-right whitespace-nowrap`}>
+                    <div className="font-bold text-[#1c3838]">
+                      {(c.top1Similarity * 100).toFixed(1)}%
+                    </div>
+                    <div className="text-[10px] text-[#787f8a]">
+                      {c.countAboveThreshold} matches &gt; 0.65
+                    </div>
+                  </td>
+
+                  {/* Predicted Days */}
+                  <td className={`${cellPad} font-mono text-right font-bold text-[#181a1d] whitespace-nowrap`}>
+                    {c.prediction.predictedDays} d
+                  </td>
+
+                  {/* Priority */}
+                  <td className={`${cellPad} font-mono text-right whitespace-nowrap`}>
+                    <span
+                      className={`font-bold ${
+                        c.prediction.priorityScore >= 75
+                          ? "text-[#73202f]"
+                          : "text-[#555a62]"
+                      }`}
+                    >
+                      {c.prediction.priorityScore.toFixed(1)}
+                    </span>
+                  </td>
+
+                  {/* Action */}
+                  <td className={`${cellPad} text-center whitespace-nowrap`}>
+                    <span className="text-xs font-mono text-[#1c3838] group-hover:underline flex items-center justify-center space-x-0.5 font-medium">
+                      <span>Inspect</span>
+                      <ChevronRightIcon className="w-3.5 h-3.5" />
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

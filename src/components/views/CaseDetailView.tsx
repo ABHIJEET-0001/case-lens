@@ -13,11 +13,12 @@ import {
 } from "../icons";
 
 interface CaseDetailViewProps {
-  currentCase: CourtCase;
+  currentCase?: CourtCase | null;
   precedents: Precedent[];
   allCases: CourtCase[];
   onSelectAnotherCase: (caseId: string) => void;
   onNavigateToResearch: (query: string) => void;
+  isLoading?: boolean;
 }
 
 export function CaseDetailView({
@@ -26,12 +27,41 @@ export function CaseDetailView({
   allCases,
   onSelectAnotherCase,
   onNavigateToResearch,
+  isLoading,
 }: CaseDetailViewProps) {
   const [activeTab, setActiveTab] = useState<"factors" | "all-precedents">("factors");
 
+  if (isLoading) {
+    return (
+      <div className="space-y-4 animate-pulse">
+        <div className="h-8 bg-[#edeae3] rounded w-1/3"></div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="h-32 bg-[#edeae3] rounded"></div>
+          <div className="h-32 bg-[#edeae3] rounded"></div>
+          <div className="h-32 bg-[#edeae3] rounded"></div>
+        </div>
+        <div className="h-64 bg-[#edeae3] rounded"></div>
+      </div>
+    );
+  }
+
+  if (!currentCase) {
+    return (
+      <div className="bg-[#fcfbf9] border border-[#dedad0] rounded p-8 text-center space-y-3">
+        <div className="w-10 h-10 rounded-full bg-[#f1ede6] text-[#868d98] flex items-center justify-center mx-auto">
+          <FileTextIcon className="w-5 h-5" />
+        </div>
+        <h3 className="font-serif text-lg font-bold text-[#16191c]">No Case Selected</h3>
+        <p className="text-xs text-[#636a73] max-w-md mx-auto">
+          The registry backend has no case selected or returned an empty dossier. Select an active docket entry from the Pending Cases Register.
+        </p>
+      </div>
+    );
+  }
+
   // Matched precedents for this case
   const matchedPrecedents = precedents.filter((p) =>
-    currentCase.matchedPrecedentIds.includes(p.id)
+    (currentCase.matchedPrecedentIds || []).includes(p.id)
   );
 
   return (

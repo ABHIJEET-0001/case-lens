@@ -19,6 +19,7 @@ from app.schemas.search import (
 )
 from app.repositories.judgment_repo import JudgmentRepository
 from app.repositories.vector_index_repo import VectorIndexRepository
+from app.services.query_expansion import expand_statutory_query
 from app.db.models import Judgment
 
 
@@ -31,20 +32,31 @@ class SearchService:
     def search(self, request: SearchRequest) -> SearchResponse:
         start_time = time.perf_counter()
 
+        # Check if vector index is ready; if not, raise 503 as per honesty rule
+        if not self.vector_repo.is_ready:
+            from fastapi import HTTPException, status
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="FAISS vector index is not loaded. Precedent search is unavailable until index is built.",
+            )
+
+        # Apply IPC/CrPC <-> BNS/BNSS statutory expansion
+        expanded_query, applied_expansions = expand_statutory_query(request.query)
+
         # Retrieve a broader pool of candidates to allow for post-filtering
         candidate_k = min(100, max(request.top_k * 3, 25))
 
-        # 1. Semantic retrieval (FAISS)
+        # 1. Semantic retrieval (FAISS) using expanded query
         semantic_matches = self.vector_repo.search_semantic(
-            request.query, top_k=candidate_k
+            expanded_query, top_k=candidate_k
         )
         semantic_scores: Dict[UUID, float] = {
             j_id: score for j_id, score in semantic_matches
         }
 
-        # 2. Keyword baseline retrieval (TF-IDF)
+        # 2. Keyword baseline retrieval (TF-IDF) using expanded query
         keyword_scores: Dict[UUID, float] = self.vector_repo.search_keyword(
-            request.query, top_k=candidate_k
+            expanded_query, top_k=candidate_k
         )
 
         # 3. Candidate ID pool union

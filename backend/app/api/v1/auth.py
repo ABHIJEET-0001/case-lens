@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -20,6 +21,17 @@ from app.schemas.auth import LoginRequest, TokenResponse, UserResponse
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 ALGORITHM = "HS256"
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _verify_password(plain: str, hashed: str) -> bool:
+    """Verify bcrypt hash; also allow legacy demo plain-prefix for seeded demo users."""
+    if hashed.startswith("demo_"):
+        return True  # demo seed – password check skipped
+    try:
+        return pwd_context.verify(plain, hashed)
+    except Exception:
+        return False
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -64,6 +76,18 @@ def get_current_user(
     )
 
 
+def require_role(allowed_roles: List[str]):
+    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        user_role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role).lower()
+        if user_role not in [r.lower() for r in allowed_roles]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access forbidden: requires one of roles {allowed_roles}, your role is {user_role}",
+            )
+        return current_user
+    return role_checker
+
+
 @router.get("/me", response_model=UserResponse, summary="Get current authenticated user")
 def read_current_user(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse(
@@ -78,13 +102,13 @@ def read_current_user(current_user: User = Depends(get_current_user)) -> UserRes
 @router.post("/login", response_model=TokenResponse, summary="Log in with email and password")
 def login(request: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     user = db.query(User).filter(User.email == request.email).first()
-    if not user:
+    # Verify bcrypt password; also allow demo plain-text hash prefix for seeded demo users
+    if not user or not _verify_password(request.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
-    # In production use passlib bcrypt; for demo match or verify
     access_token = create_access_token(data={"sub": user.email, "role": str(user.role)})
     return TokenResponse(
         access_token=access_token,
@@ -101,6 +125,8 @@ def login(request: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 
 @router.get("/demo-users", response_model=List[UserResponse], summary="List available demo profiles")
 def list_demo_users(db: Session = Depends(get_db)) -> List[UserResponse]:
+    if not settings.demo_mode:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Demo mode is disabled.")
     users = db.query(User).filter(User.is_active == True).all()
     return [
         UserResponse(
@@ -116,6 +142,8 @@ def list_demo_users(db: Session = Depends(get_db)) -> List[UserResponse]:
 
 @router.post("/demo-switch/{role}", response_model=TokenResponse, summary="Switch demo role and receive valid JWT")
 def demo_switch_role(role: str, db: Session = Depends(get_db)) -> TokenResponse:
+    if not settings.demo_mode:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Demo mode is disabled.")
     target_role = role.lower()
     user = db.query(User).filter(User.role == target_role).first()
     if not user:

@@ -3,7 +3,7 @@
  * ──────────────
  * Typed API Client for CaseLens backend services.
  */
-import { CourtCase, UserProfile, UserRole, SHAPFactor } from "./types";
+import { CourtCase, UserProfile, UserRole, SHAPFactor, SystemStatusTelemetry, Precedent } from "./types";
 
 const TOKEN_KEY = "caselens_token";
 
@@ -25,10 +25,13 @@ export function clearStoredToken(): void {
 }
 
 export interface HealthStatus {
-  status: "ok" | "offline" | "checking";
+  status: "ok" | "degraded" | "offline" | "checking";
   db: string;
+  index_loaded?: boolean;
   version?: string;
   environment?: string;
+  embedding_model?: string;
+  embedding_dimension?: number;
 }
 
 /**
@@ -50,10 +53,13 @@ export async function fetchHealth(): Promise<HealthStatus> {
     }
     const data = await res.json();
     return {
-      status: data.status === "ok" ? "ok" : "offline",
+      status: data.status === "ok" ? "ok" : data.status === "degraded" ? "degraded" : "offline",
       db: data.db || "disconnected",
+      index_loaded: data.index_loaded,
       version: data.version,
       environment: data.environment,
+      embedding_model: data.embedding_model,
+      embedding_dimension: data.embedding_dimension,
     };
   } catch {
     return { status: "offline", db: "unreachable" };
@@ -262,3 +268,127 @@ export async function registerNewCase(caseIn: {
     throw err;
   }
 }
+
+/**
+ * Fetch System Runtime Status & Corpus Diagnostics
+ */
+export async function fetchSystemStatus(): Promise<SystemStatusTelemetry | null> {
+  try {
+    const res = await fetch("/api/v1/system/status", {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("fetchSystemStatus error:", err);
+    return null;
+  }
+}
+
+/**
+ * Fetch live caseload count from backend
+ */
+export async function fetchCasesCount(): Promise<number> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getStoredToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch("/api/v1/cases/count", { headers });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    return data.count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Fetch benchmark model evaluation metrics from backend
+ */
+export async function fetchModelMetrics(): Promise<{
+  metrics: import("./types").ModelMetricComparison[];
+  featureImportance: import("./types").FeatureImportance[];
+} | null> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getStoredToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch("/api/v1/model/metrics", { headers });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const metrics: import("./types").ModelMetricComparison[] = (data.comparison || []).map((row: any) => ({
+      metric: row.metric,
+      metadataOnly: row.metadata_only,
+      withPrecedents: row.with_precedents,
+      improvementPct: row.improvement_pct,
+      unit: row.unit,
+    }));
+    const featureImportance: import("./types").FeatureImportance[] = (data.feature_importance || []).map((f: any) => ({
+      rank: f.rank,
+      featureName: f.feature_name,
+      category: f.category || "Precedent Intelligence",
+      meanShap: f.importance_score,
+      direction: "Reduces delay variance",
+      description: `Feature weight in gradient boosting tree: ${f.importance_score}`,
+    }));
+    return { metrics, featureImportance };
+  } catch (err) {
+    console.error("fetchModelMetrics error:", err);
+    return null;
+  }
+}
+
+/**
+ * Perform precedent search against hybrid backend
+ */
+export async function searchPrecedents(
+  query: string,
+  method: "hybrid" | "semantic" | "keyword" = "hybrid",
+  filters?: { court?: string; case_type?: string }
+): Promise<Precedent[]> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    const token = getStoredToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch("/api/v1/search", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        query,
+        method,
+        top_k: 20,
+        filters: filters || {},
+      }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map((r: any) => ({
+      id: r.id,
+      title: r.title,
+      citation: r.citation,
+      court: r.court,
+      caseType: r.case_type,
+      judgmentDate: r.judgment_date,
+      outcome: r.outcome,
+      bench: r.bench,
+      similarityScore: r.similarity_score,
+      keywordScore: r.keyword_score,
+      wordCount: r.word_count || 0,
+      summary: r.summary || {
+        facts: r.matched_snippet || "",
+        issue: "Statutory interpretation and application.",
+        holding: "Judgment rendered according to law.",
+        outcomeText: r.outcome,
+      },
+      matchedSnippets: [r.matched_snippet].filter(Boolean),
+      fullText: r.matched_snippet || "",
+    }));
+  } catch (err) {
+    console.error("searchPrecedents error:", err);
+    return [];
+  }
+}
+

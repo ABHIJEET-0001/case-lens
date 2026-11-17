@@ -20,5 +20,5 @@ COPY . .
 # Create data directories for FAISS index and model artifacts
 RUN mkdir -p /app/data/index /app/data/models
 
-# entrypoint: run migrations, then start the server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+# entrypoint: run migrations, then start the server using dynamic PORT from cloud provider
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

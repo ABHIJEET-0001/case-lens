@@ -1,5 +1,6 @@
-import React from "react";
-import { CourtCase, Precedent } from "@/lib/types";
+import React, { useState, useEffect } from "react";
+import { CourtCase, Precedent, SystemStatusTelemetry } from "@/lib/types";
+import { fetchSystemStatus } from "@/lib/api";
 import {
   SearchIcon,
   ClockIcon,
@@ -28,6 +29,13 @@ export function DashboardView({
   onNavigateToCases,
 }: DashboardViewProps) {
   const [quickSearch, setQuickSearch] = React.useState("");
+  const [systemStatus, setSystemStatus] = useState<SystemStatusTelemetry | null>(null);
+
+  useEffect(() => {
+    fetchSystemStatus().then((res) => {
+      if (res) setSystemStatus(res);
+    });
+  }, []);
 
   const pendingCount = cases.filter((c) => c.status === "pending").length;
   const hearingCount = cases.filter((c) => c.status === "hearing").length;
@@ -83,9 +91,15 @@ export function DashboardView({
 
         <div className="flex items-center space-x-2 text-xs font-mono text-[#525860] bg-[#f1eeea] px-3 py-1.5 rounded border border-[#dedad0]">
           <span>FAISS Index:</span>
-          <span className="font-semibold text-[#181a1d]">{precedents.length} Precedents Indexed</span>
+          <span className="font-semibold text-[#181a1d]">
+            {systemStatus ? `${systemStatus.faiss_vector_count} Indexed` : `${precedents.length} Precedents Indexed`}
+          </span>
           <span className="text-[#c7c1b5]">•</span>
-          <span>InLegalBERT 384-dim</span>
+          <span>
+            {systemStatus?.embedding_model
+              ? `${systemStatus.embedding_model.split("/").pop()} (${systemStatus.embedding_dimension}d)`
+              : "all-MiniLM-L6-v2 (384d)"}
+          </span>
         </div>
       </div>
 

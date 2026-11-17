@@ -27,6 +27,8 @@ def search_precedents(
     try:
         service = SearchService(db)
         return service.search(request)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

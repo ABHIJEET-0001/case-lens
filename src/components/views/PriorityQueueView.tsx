@@ -12,10 +12,29 @@ import {
 interface PriorityQueueViewProps {
   cases: CourtCase[];
   onSelectCase: (caseId: string) => void;
+  isLoading?: boolean;
 }
 
-export function PriorityQueueView({ cases, onSelectCase }: PriorityQueueViewProps) {
+export function PriorityQueueView({ cases, onSelectCase, isLoading }: PriorityQueueViewProps) {
   const [activeFilter, setActiveFilter] = useState<"all" | "fast-track" | "attention">("all");
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4 animate-pulse">
+        <div className="h-8 bg-[#edeae3] rounded w-1/3"></div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="h-16 bg-[#edeae3] rounded"></div>
+          <div className="h-16 bg-[#edeae3] rounded"></div>
+          <div className="h-16 bg-[#edeae3] rounded"></div>
+        </div>
+        <div className="space-y-2">
+          <div className="h-20 bg-[#edeae3] rounded"></div>
+          <div className="h-20 bg-[#edeae3] rounded"></div>
+          <div className="h-20 bg-[#edeae3] rounded"></div>
+        </div>
+      </div>
+    );
+  }
 
   // Sorted by priorityScore descending
   const sortedCases = [...cases].sort(
@@ -131,7 +150,21 @@ export function PriorityQueueView({ cases, onSelectCase }: PriorityQueueViewProp
             </tr>
           </thead>
           <tbody className="divide-y divide-[#ede9e1] font-sans">
-            {displayedCases.map((c, idx) => {
+            {displayedCases.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="p-8 text-center text-xs font-mono text-[#636a73]">
+                  Zero cases meet the {activeFilter === "fast-track" ? "Fast-Track Eligible" : "Needs Bench Attention"} criteria.
+                  <button
+                    type="button"
+                    onClick={() => setActiveFilter("all")}
+                    className="ml-2 text-[#1c3838] underline font-bold"
+                  >
+                    View Entire Ranked Docket
+                  </button>
+                </td>
+              </tr>
+            ) : (
+              displayedCases.map((c, idx) => {
               const isFastTrack = c.top1Similarity >= 0.80 && c.prediction.predictedDays <= 120;
               const isAttention = c.prediction.priorityScore >= 80;
 
@@ -222,7 +255,7 @@ export function PriorityQueueView({ cases, onSelectCase }: PriorityQueueViewProp
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>

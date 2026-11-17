@@ -44,6 +44,23 @@ def predict_case_resolution(
 
 
 @router.post(
+    "/queue/approve/{case_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Judge approves case priority listing and sets status to reserved or expedited",
+)
+def approve_queue_listing(case_id: UUID, db: Session = Depends(get_db)):
+    from app.db.models import PendingCase, CaseStatus
+    from datetime import datetime
+    case = db.query(PendingCase).filter(PendingCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found.")
+    case.status = CaseStatus.hearing
+    case.prediction_updated_at = datetime.utcnow()
+    db.commit()
+    return {"status": "approved", "case_id": str(case_id), "stage": "hearing"}
+
+
+@router.post(
     "/queue/rank",
     response_model=QueueRankResponse,
     status_code=status.HTTP_200_OK,
@@ -77,3 +94,29 @@ def get_benchmark_metrics(db: Session = Depends(get_db)) -> ModelMetricsResponse
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to read model metrics: {str(exc)}",
         )
+
+
+@router.get(
+    "/model/retrieval-metrics",
+    status_code=status.HTTP_200_OK,
+    summary="Retrieval evaluation: Precision@5 and MRR for TF-IDF vs semantic vs hybrid",
+)
+def get_retrieval_metrics() -> dict:
+    """
+    Returns the last-computed retrieval evaluation on the 30-query gold set.
+    If ml/metrics.json exists, reads from it; otherwise returns placeholder with a note.
+    """
+    import json, os
+    metrics_path = os.path.join(os.path.dirname(__file__), "../../../../ml/metrics.json")
+    if os.path.isfile(metrics_path):
+        with open(metrics_path) as f:
+            return json.load(f)
+    return {
+        "note": "Retrieval evaluation not yet run. Execute `make eval` to generate.",
+        "gold_set_queries": 30,
+        "methods": {
+            "tfidf":    {"precision_at_5": None, "mrr": None},
+            "semantic": {"precision_at_5": None, "mrr": None},
+            "hybrid":   {"precision_at_5": None, "mrr": None},
+        },
+    }

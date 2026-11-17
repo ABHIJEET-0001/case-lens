@@ -7,6 +7,7 @@ import {
   BarChartIcon,
   ChevronRightIcon,
   AlertCircleIcon,
+  SettingsIcon,
 } from "./icons";
 
 export type NavTab =
@@ -15,7 +16,8 @@ export type NavTab =
   | "cases"
   | "case-detail"
   | "queue"
-  | "model-report";
+  | "model-report"
+  | "settings";
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -74,6 +76,13 @@ export function Sidebar({
       subtitle: "SHAP & Accuracy Proof",
       icon: BarChartIcon,
       shortcut: "6",
+    },
+    {
+      id: "settings" as NavTab,
+      label: "Platform Settings",
+      subtitle: "Diagnostics & Telemetry",
+      icon: SettingsIcon,
+      shortcut: "7",
     },
   ];
 
