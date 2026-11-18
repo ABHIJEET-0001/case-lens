@@ -88,43 +88,35 @@ MODEL_ALIASES = {
 def load_from_huggingface(limit: Optional[int]) -> list[dict]:
     """
     Load judgments from the ILDC dataset on Hugging Face.
-    Dataset: Exploration-Lab/ILDC  (IIT Delhi — publicly available)
-    Falls back to a simple structure if the schema differs.
+    Uses jayadityagandham9/ILDC_35k_COMPLETE in streaming mode for fast targeted ingestion.
     """
     from datasets import load_dataset
 
-    log.info("Downloading ILDC dataset from Hugging Face (Exploration-Lab/ILDC)...")
+    target_limit = limit or 200
+    log.info("Streaming %d judgments from ILDC dataset on Hugging Face...", target_limit)
+    rows = []
     try:
-        ds = load_dataset("Exploration-Lab/ILDC", "ILDC_single", trust_remote_code=True)
-        split = ds.get("train") or ds[list(ds.keys())[0]]
-    except Exception as exc:
-        log.error("Failed to load Exploration-Lab/ILDC: %s", exc)
-        log.info("Trying fallback dataset: pile-of-law/pile-of-law ...")
         ds = load_dataset(
-            "pile-of-law/pile-of-law",
-            "indian_courts",
+            "jayadityagandham9/ILDC_35k_COMPLETE",
             split="train",
             streaming=True,
-            trust_remote_code=True,
         )
-        rows = []
-        for i, row in enumerate(ds):
-            if limit and i >= limit:
+        for i, item in enumerate(ds):
+            if i >= target_limit:
                 break
-            rows.append({"text": row.get("text", ""), "title": row.get("title", "")})
+            text_val = item.get("text") or item.get("document") or ""
+            # Extract first line or clean title if available
+            first_line = text_val.strip().split("\n")[0][:120] if text_val else f"ILDC Judgment #{item.get('id', i+1)}"
+            rows.append({
+                "text": text_val,
+                "title": item.get("title") or item.get("name") or first_line,
+                "label": item.get("label"),
+            })
+        log.info("Successfully streamed %d judgments from ILDC.", len(rows))
         return rows
-
-    if limit:
-        split = split.select(range(min(limit, len(split))))
-
-    rows = []
-    for item in split:
-        rows.append({
-            "text": item.get("text") or item.get("document") or "",
-            "title": item.get("name") or item.get("title") or "",
-            "label": item.get("label"),        # 0/1 — kept for future use
-        })
-    return rows
+    except Exception as exc:
+        log.error("Failed to load ILDC dataset: %s", exc)
+        raise
 
 
 def load_from_csv(filepath: str, limit: Optional[int]) -> list[dict]:
@@ -187,7 +179,11 @@ def row_to_judgment(raw: dict) -> Optional[Judgment]:
 
     # Prefer explicit columns; fall back to extraction from text
     citation = raw.get("citation") or extract_citation(text)
-    court = raw.get("court") or extract_court(text)
+    citation = citation[:250] if citation else None
+
+    court = raw.get("court") or extract_court(text) or "Unknown Court"
+    court = court[:250]
+
     j_date = None
     if raw.get("date"):
         try:
@@ -197,14 +193,23 @@ def row_to_judgment(raw: dict) -> Optional[Judgment]:
     else:
         j_date = extract_judgment_date(text)
 
+    case_type = raw.get("case_type") or extract_case_type(text)
+    case_type = case_type[:95] if case_type else None
+
+    outcome = raw.get("outcome") or extract_outcome(text)
+    outcome = outcome[:95] if outcome else None
+
+    title_val = raw.get("title") or (text[:100].replace("\n", " ") + "...")
+    title_val = title_val[:510]
+
     return Judgment(
         id=uuid.uuid4(),
-        title=raw.get("title") or (text[:100].replace("\n", " ") + "..."),
+        title=title_val,
         citation=citation,
         court=court,
-        case_type=raw.get("case_type") or extract_case_type(text),
+        case_type=case_type,
         judgment_date=j_date,
-        outcome=raw.get("outcome") or extract_outcome(text),
+        outcome=outcome,
         source_url=raw.get("source_url") or raw.get("url"),
         full_text=text,
         word_count=len(text.split()),
@@ -212,32 +217,35 @@ def row_to_judgment(raw: dict) -> Optional[Judgment]:
     )
 
 
-def upsert_judgments(rows: list[dict]) -> list[Judgment]:
+def upsert_judgments(rows: list[dict]) -> None:
     """
-    Insert new judgments into the DB. Skips duplicates by citation.
-    Returns the list of Judgment objects (new + existing) for embedding.
+    Insert new judgments into the DB. Skips duplicates by citation or title.
+    Uses expire_on_commit=False to prevent detached attribute errors.
     """
-    db = SessionLocal()
+    db = SessionLocal(expire_on_commit=False)
     inserted, skipped = 0, 0
-    judgment_objects = []
 
     try:
+        existing_citations = {
+            c[0] for c in db.query(Judgment.citation).filter(Judgment.citation.isnot(None)).all()
+        }
+        existing_titles = {t[0] for t in db.query(Judgment.title).all()}
+
         for raw in tqdm(rows, desc="Storing judgments", unit="doc"):
             j = row_to_judgment(raw)
             if j is None:
                 skipped += 1
                 continue
 
-            # Dedup by citation if available
-            if j.citation:
-                existing = db.query(Judgment).filter_by(citation=j.citation).first()
-                if existing:
-                    judgment_objects.append(existing)
-                    skipped += 1
-                    continue
+            # Dedup: skip if citation or title already exists in DB
+            if (j.citation and j.citation in existing_citations) or (j.title in existing_titles):
+                skipped += 1
+                continue
 
             db.add(j)
-            judgment_objects.append(j)
+            if j.citation:
+                existing_citations.add(j.citation)
+            existing_titles.add(j.title)
             inserted += 1
 
             # Flush in batches to avoid holding a huge transaction
@@ -251,8 +259,6 @@ def upsert_judgments(rows: list[dict]) -> list[Judgment]:
         raise
     finally:
         db.close()
-
-    return judgment_objects
 
 
 # ── Embedding & indexing ──────────────────────────────────────────────────────
@@ -273,20 +279,13 @@ def load_embedding_model(model_key: str):
 
 
 def embed_judgments(
-    judgments: list[Judgment],
-    model,
-    index_dir: Path,
+    judgments: Optional[list] = None,
+    model=None,
+    index_dir: Path = INDEX_DIR,
 ) -> None:
     """
-    For each judgment:
-      1. Chunk the full_text into overlapping word windows.
-      2. Embed all chunks in batches.
-      3. Mean-pool chunk embeddings → one judgment-level vector.
-      4. L2-normalise the vector (enables cosine similarity via inner product).
-    Saves:
-      - FAISS IndexFlatIP  →  index_dir/judgments.faiss
-      - id_map.json        →  index_dir/id_map.json  (row_index -> UUID str)
-    Also marks each judgment as is_indexed=True in the DB.
+    Reads judgments from the DB in a fresh session (expire_on_commit=False),
+    copies needed attributes into plain tuples, chunks, and builds FAISS index.
     """
     import faiss
 
@@ -295,12 +294,15 @@ def embed_judgments(
     index = faiss.IndexFlatIP(dim)   # inner product = cosine after L2-norm
     id_map: list[str] = []           # position i → judgment UUID
 
-    db = SessionLocal()
+    db = SessionLocal(expire_on_commit=False)
     try:
-        log.info("Embedding %d judgments (dim=%d)...", len(judgments), dim)
+        # Read from DB in a fresh session and copy needed fields into plain tuples
+        db_records = db.query(Judgment).all()
+        items = [(str(j.id), j.full_text) for j in db_records]
+        log.info("Embedding %d judgments from DB (dim=%d)...", len(items), dim)
 
-        for j in tqdm(judgments, desc="Embedding", unit="doc"):
-            chunks = chunk_text(j.full_text, CHUNK_WORDS, OVERLAP_WORDS)
+        for j_id, full_text in tqdm(items, desc="Embedding", unit="doc"):
+            chunks = chunk_text(full_text, CHUNK_WORDS, OVERLAP_WORDS)
 
             # Embed chunks in one shot (SentenceTransformer handles batching internally)
             chunk_vecs = model.encode(
@@ -320,13 +322,10 @@ def embed_judgments(
                 jvec = jvec / norm
 
             index.add(jvec.reshape(1, -1).astype("float32"))
-            id_map.append(str(j.id))
+            id_map.append(j_id)
 
-            # Mark as indexed in DB
-            db_j = db.get(Judgment, j.id)
-            if db_j:
-                db_j.is_indexed = True
-
+        # Mark all indexed in DB
+        db.query(Judgment).update({Judgment.is_indexed: True})
         db.commit()
     except Exception:
         db.rollback()
@@ -345,37 +344,38 @@ def embed_judgments(
     log.info("ID map saved: %s", id_map_path)
 
 
-def build_tfidf(judgments: list[Judgment], index_dir: Path) -> None:
+def build_tfidf(judgments: Optional[list] = None, index_dir: Path = INDEX_DIR) -> None:
     """
-    Fit a TF-IDF vectorizer on all judgment texts and save:
-      - tfidf.pkl  →  {"vectorizer": TfidfVectorizer, "matrix": sparse_matrix, "ids": [uuid...]}
-
-    This is the keyword-search baseline used for semantic vs keyword comparison
-    in the Model Report screen.
+    Fit a TF-IDF vectorizer on all judgment texts reading from DB in a fresh session.
     """
     from sklearn.feature_extraction.text import TfidfVectorizer
 
-    log.info("Building TF-IDF index on %d judgments...", len(judgments))
-    texts = [j.full_text for j in judgments]
-    ids = [str(j.id) for j in judgments]
+    db = SessionLocal(expire_on_commit=False)
+    try:
+        db_records = db.query(Judgment).all()
+        log.info("Building TF-IDF index on %d judgments...", len(db_records))
+        texts = [j.full_text for j in db_records]
+        ids = [str(j.id) for j in db_records]
 
-    vectorizer = TfidfVectorizer(
-        max_features=TFIDF_MAX_FEATURES,
-        sublinear_tf=True,
-        min_df=2,
-        ngram_range=(1, 2),
-        strip_accents="unicode",
-    )
-    matrix = vectorizer.fit_transform(texts)
+        vectorizer = TfidfVectorizer(
+            max_features=TFIDF_MAX_FEATURES,
+            sublinear_tf=True,
+            min_df=2,
+            ngram_range=(1, 2),
+            strip_accents="unicode",
+        )
+        matrix = vectorizer.fit_transform(texts)
 
-    tfidf_path = index_dir / "tfidf.pkl"
-    with open(tfidf_path, "wb") as f:
-        pickle.dump({"vectorizer": vectorizer, "matrix": matrix, "ids": ids}, f)
+        tfidf_path = index_dir / "tfidf.pkl"
+        with open(tfidf_path, "wb") as f:
+            pickle.dump({"vectorizer": vectorizer, "matrix": matrix, "ids": ids}, f)
 
-    log.info(
-        "TF-IDF index saved: %s  (%d docs, %d features)",
-        tfidf_path, matrix.shape[0], matrix.shape[1],
-    )
+        log.info(
+            "TF-IDF index saved: %s  (%d docs, %d features)",
+            tfidf_path, matrix.shape[0], matrix.shape[1],
+        )
+    finally:
+        db.close()
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -412,6 +412,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Store in DB only, skip FAISS/TF-IDF building (for quick DB tests)",
     )
+    p.add_argument(
+        "--from-db",
+        action="store_true",
+        help="Use existing judgments in the DB instead of re-downloading source dataset",
+    )
     return p.parse_args()
 
 
@@ -420,33 +425,41 @@ def main() -> None:
 
     log.info("=" * 60)
     log.info("CaseLens Ingestion Pipeline")
-    log.info("Source: %s | Limit: %s | Model: %s", args.source, args.limit, args.model)
+    log.info("Source: %s | Limit: %s | Model: %s", args.source if not args.from_db else "database", args.limit, args.model)
     log.info("=" * 60)
 
-    # 1. Load raw data
-    if args.source == "huggingface":
-        rows = load_from_huggingface(args.limit)
-    elif args.source == "csv":
-        if not args.file:
-            raise ValueError("--file is required when --source is csv")
-        rows = load_from_csv(args.file, args.limit)
+    if args.from_db:
+        log.info("Using existing judgments from database...")
+        db = SessionLocal()
+        try:
+            judgments = db.query(Judgment).all()
+        finally:
+            db.close()
+        if not judgments:
+            log.error("No judgments found in database. Exiting.")
+            return
+        log.info("Found %d judgments in database.", len(judgments))
     else:
-        if not args.file:
-            raise ValueError("--file is required when --source is json")
-        rows = load_from_json(args.file, args.limit)
+        # 1. Load raw data
+        if args.source == "huggingface":
+            rows = load_from_huggingface(args.limit)
+        elif args.source == "csv":
+            if not args.file:
+                raise ValueError("--file is required when --source is csv")
+            rows = load_from_csv(args.file, args.limit)
+        else:
+            if not args.file:
+                raise ValueError("--file is required when --source is json")
+            rows = load_from_json(args.file, args.limit)
 
-    if not rows:
-        log.error("No data loaded. Exiting.")
-        return
+        if not rows:
+            log.error("No data loaded. Exiting.")
+            return
 
-    log.info("Loaded %d raw records.", len(rows))
+        log.info("Loaded %d raw records.", len(rows))
 
-    # 2. Clean, extract metadata, store in DB
-    judgments = upsert_judgments(rows)
-
-    if not judgments:
-        log.error("No valid judgments after cleaning. Exiting.")
-        return
+        # 2. Clean, extract metadata, store in DB (skips existing)
+        upsert_judgments(rows)
 
     if args.skip_embed:
         log.info("--skip-embed set. Skipping FAISS and TF-IDF build. Done.")
@@ -455,11 +468,22 @@ def main() -> None:
     # 3. Load embedding model
     model = load_embedding_model(args.model)
 
-    # 4. Build FAISS semantic index
-    embed_judgments(judgments, model, INDEX_DIR)
+    # 4. Build FAISS semantic index (reads from DB in fresh session)
+    embed_judgments(model=model, index_dir=INDEX_DIR)
 
-    # 5. Build TF-IDF keyword baseline
-    build_tfidf(judgments, INDEX_DIR)
+    # 5. Build TF-IDF keyword baseline (reads from DB in fresh session)
+    build_tfidf(index_dir=INDEX_DIR)
+
+    # Mirror to local directory for portability if mounted
+    import shutil
+    host_mirror = Path("/app/backend/data/index")
+    if host_mirror.parent.exists():
+        host_mirror.mkdir(parents=True, exist_ok=True)
+        for fname in ["judgments.faiss", "id_map.json", "tfidf.pkl"]:
+            src_f = INDEX_DIR / fname
+            if src_f.exists():
+                shutil.copy2(src_f, host_mirror / fname)
+        log.info("Mirrored index files to: %s", host_mirror)
 
     log.info("=" * 60)
     log.info("Ingestion complete. %d judgments indexed.", len(judgments))

@@ -19,6 +19,7 @@ import { CasesView } from "@/components/views/CasesView";
 import { CaseDetailView } from "@/components/views/CaseDetailView";
 import { PriorityQueueView } from "@/components/views/PriorityQueueView";
 import { ModelReportView } from "@/components/views/ModelReportView";
+import { LoginView } from "@/components/views/LoginView";
 import { SettingsView } from "@/components/views/SettingsView";
 
 export default function CaseLensApp() {
@@ -57,14 +58,8 @@ export default function CaseLensApp() {
       if (user) {
         setCurrentUser(user);
         setUserRole(user.role);
-      } else {
-        // Automatically acquire default judge demo token
-        const demoJudge = await switchDemoRole("judge");
-        if (demoJudge) {
-          setCurrentUser(demoJudge);
-          setUserRole(demoJudge.role);
-        }
       }
+      // No auto demo-switch: show login screen instead
     }
     initAuth();
   }, []);
@@ -226,6 +221,17 @@ export default function CaseLensApp() {
     setSelectedCaseId(newCase.id);
     setActiveTab("case-detail");
   };
+
+  if (!currentUser) {
+    return (
+      <LoginView
+        onLogin={(user) => {
+          setCurrentUser(user);
+          setUserRole(user.role);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#fcfbf9] text-[#171a1d] flex flex-col font-sans selection:bg-[#1c3838] selection:text-white">

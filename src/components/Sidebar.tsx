@@ -73,7 +73,7 @@ export function Sidebar({
     {
       id: "model-report" as NavTab,
       label: "Model Benchmark Report",
-      subtitle: "SHAP & Accuracy Proof",
+      subtitle: "SHAP & Model Metrics",
       icon: BarChartIcon,
       shortcut: "6",
     },

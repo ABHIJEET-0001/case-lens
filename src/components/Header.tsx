@@ -129,23 +129,8 @@ export function Header({
           </div>
         </div>
 
-        {/* Right: Bench Filter & Authenticated User Profile Menu */}
+        {/* Right: Authenticated User Profile Menu */}
         <div className="flex items-center space-x-3">
-          {/* Bench / Court Dropdown Filter */}
-          <div className="hidden lg:flex items-center space-x-1.5 text-[11px] font-mono bg-[#f2efe9] px-2.5 py-1 rounded border border-[#ded9ce]">
-            <span className="text-[#737a82]">Bench:</span>
-            <select
-              value={selectedBench}
-              onChange={(e) => onBenchChange(e.target.value)}
-              className="bg-transparent text-[#181a1d] font-semibold text-[11px] focus:outline-none cursor-pointer"
-            >
-              <option value="all">All Benches & Rosters</option>
-              <option value="Supreme Court of India">Division Bench IV (Supreme Court)</option>
-              <option value="High Court of Delhi">Writ & Commercial Bench (Delhi HC)</option>
-              <option value="High Court of Bombay">Appellate Side (Bombay HC)</option>
-            </select>
-          </div>
-
           {/* Authenticated User Menu Dropdown */}
           <div className="relative" ref={userMenuRef}>
             <button

@@ -15,15 +15,15 @@ from typing import Optional
 
 # Boilerplate lines commonly found in Indian judgment PDFs/scraped HTML
 _BOILERPLATE_PATTERNS = [
-    r"(?i)^\s*page\s+\d+\s+of\s+\d+\s*$",
-    r"(?i)^\s*(reportable|non[\s-]?reportable)\s*$",
-    r"(?i)^\s*in\s+the\s+(supreme court|high court).*\s*$",   # repeated header lines
-    r"(?i)^\s*\*{3,}\s*$",                                    # *** dividers
-    r"(?i)^\s*-{5,}\s*$",                                     # --- dividers
-    r"(?i)^\s*(judgment|order|decree)\s*$",
-    r"(?i)^\s*pronounced\s+on\s*:?\s*$",
+    r"^\s*page\s+\d+\s+of\s+\d+\s*$",
+    r"^\s*(reportable|non[\s-]?reportable)\s*$",
+    r"^\s*in\s+the\s+(supreme court|high court).*\s*$",   # repeated header lines
+    r"^\s*\*{3,}\s*$",                                    # *** dividers
+    r"^\s*-{5,}\s*$",                                     # --- dividers
+    r"^\s*(judgment|order|decree)\s*$",
+    r"^\s*pronounced\s+on\s*:?\s*$",
 ]
-_BOILERPLATE_RE = re.compile("|".join(_BOILERPLATE_PATTERNS), re.MULTILINE)
+_BOILERPLATE_RE = re.compile("|".join(_BOILERPLATE_PATTERNS), re.MULTILINE | re.IGNORECASE)
 
 
 def clean_judgment_text(text: str) -> str:

@@ -7,6 +7,35 @@ import { CourtCase, UserProfile, UserRole, SHAPFactor, SystemStatusTelemetry, Pr
 
 const TOKEN_KEY = "caselens_token";
 
+/**
+ * Auth: Login with email + password, receive JWT
+ */
+export async function loginWithCredentials(
+  email: string,
+  password: string
+): Promise<UserProfile | null> {
+  try {
+    const res = await fetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.access_token) setStoredToken(data.access_token);
+    const u = data.user;
+    return {
+      id: u.id,
+      email: u.email,
+      fullName: u.full_name || u.email,
+      role: (u.role?.toLowerCase() as UserRole) || "clerk",
+      isActive: u.is_active,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(TOKEN_KEY);
@@ -334,6 +363,22 @@ export async function fetchModelMetrics(): Promise<{
     return { metrics, featureImportance };
   } catch (err) {
     console.error("fetchModelMetrics error:", err);
+    return null;
+  }
+}
+
+/**
+ * Judge: approve (dispose) a pending case
+ */
+export async function approveCase(caseId: string): Promise<{ msg: string; status: string } | null> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getStoredToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`/api/v1/judge/approve/${caseId}`, { method: "POST", headers });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
     return null;
   }
 }

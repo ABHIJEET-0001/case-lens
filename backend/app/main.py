@@ -12,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from app.db.session import get_db
+from app.db.session import get_db, engine
+from app.db.models import Base
 from app.config import settings
 from app.api.v1 import api_v1_router
 from app.api.v1.search import router as search_router
@@ -33,6 +34,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Seed demo users and cases at startup (only when DEMO_MODE=true)
+from app.db.session import SessionLocal
+from app.db.seed import seed_all
+
+@app.on_event("startup")
+def on_startup():
+    db = SessionLocal()
+    try:
+        seed_all(db)
+    except Exception as e:
+        import logging
+        logging.getLogger("seed").error("Startup seeding failed: %s", e)
+    finally:
+        db.close()
 
 # Mount layered API routes
 app.include_router(api_v1_router)
@@ -59,9 +75,10 @@ def health_check(db: Session = Depends(get_db)):
     except Exception as exc:
         db_status = f"error: {exc}"
 
-    # Check FAISS index
-    index_path = os.path.join(os.path.dirname(__file__), "../../data/faiss_index.bin")
-    index_loaded = os.path.isfile(index_path)
+    # Check FAISS index via vector repository singleton
+    from app.repositories.vector_index_repo import VectorIndexRepository
+    vector_repo = VectorIndexRepository.get_instance()
+    index_loaded = vector_repo.is_ready
 
     # Determine overall status
     if db_status == "connected" and index_loaded:

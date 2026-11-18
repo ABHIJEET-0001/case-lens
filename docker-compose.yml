@@ -20,8 +20,8 @@ services:
   # ── FastAPI backend ──────────────────────────────────────────────────────────
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./backend/Dockerfile
     restart: unless-stopped
     env_file: .env
     ports:
@@ -45,7 +45,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: ./backend/Dockerfile
     restart: unless-stopped
     ports:
       - "5173:5173"

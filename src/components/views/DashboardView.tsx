@@ -42,39 +42,23 @@ export function DashboardView({
   const reservedCount = cases.filter((c) => c.status === "reserved").length;
   const urgentCount = cases.filter((c) => c.prediction.priorityScore >= 75).length;
 
+  const avgHearings = cases.length > 0
+    ? (cases.reduce((sum, c) => sum + (c.hearingsCount || 0), 0) / cases.length).toFixed(1)
+    : "0.0";
+
+  const precedentMappedCount = cases.filter(
+    (c) => (c.top1Similarity && c.top1Similarity > 0) || (c.matchedPrecedentIds && c.matchedPrecedentIds.length > 0)
+  ).length;
+  const precedentMappedPct = cases.length > 0
+    ? Math.round((precedentMappedCount / cases.length) * 100)
+    : 0;
+
   const handleQuickSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (quickSearch.trim()) {
       onNavigateToResearch(quickSearch.trim());
     }
   };
-
-  const sampleQueries = [
-    {
-      query: "Section 45 PMLA twin conditions bail prolonged custody",
-      hits: 14,
-      court: "Supreme Court",
-      topCite: "(2024) INSC 595",
-    },
-    {
-      query: "Arbitration Act Section 34 patent illegality setting aside award",
-      hits: 28,
-      court: "Commercial Bench",
-      topCite: "(2019) 15 SCC 131",
-    },
-    {
-      query: "Insolvency moratorium corporate bank guarantee Section 14",
-      hits: 9,
-      court: "High Court",
-      topCite: "(2018) 17 SCC 394",
-    },
-    {
-      query: "Section 41A CrPC notice of appearance mechanical arrest guidelines",
-      hits: 32,
-      court: "Supreme Court",
-      topCite: "(2022) 10 SCC 51",
-    },
-  ];
 
   return (
     <div className="space-y-6">
@@ -114,7 +98,7 @@ export function DashboardView({
             {cases.length}
           </div>
           <div className="text-[11px] text-[#636a73] mt-1 flex items-center space-x-1">
-            <span className="text-[#1f5938] font-semibold">100%</span>
+            <span className="text-[#1f5938] font-semibold">{precedentMappedPct}%</span>
             <span>precedent-mapped</span>
           </div>
         </div>
@@ -128,7 +112,7 @@ export function DashboardView({
             {hearingCount}
           </div>
           <div className="text-[11px] text-[#8c6218] mt-1">
-            Avg. 18.2 hearings / case
+            Avg. {avgHearings} hearings / case
           </div>
         </div>
 
@@ -190,30 +174,6 @@ export function DashboardView({
                 <span>Search</span>
               </button>
             </form>
-
-            {/* Recent Institutional Precedent Inquiries */}
-            <div className="mt-4 pt-3 border-t border-[#ede9e1]">
-              <div className="text-[11px] font-mono uppercase tracking-wider text-[#757c87] mb-2 font-medium">
-                Frequent Judicial Precedent Searches
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {sampleQueries.map((item, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => onNavigateToResearch(item.query)}
-                    className="text-left p-2 rounded bg-[#f6f4ee] hover:bg-[#ede9df] border border-[#e2ddd3] transition-colors group"
-                  >
-                    <div className="text-xs font-medium text-[#181a1d] line-clamp-1 group-hover:text-[#1c3838]">
-                      {item.query}
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] font-mono text-[#6e7580] mt-1">
-                      <span>{item.court}</span>
-                      <span className="font-semibold text-[#181a1d]">{item.topCite}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
 
           {/* Pending Cases at a Glance */}
@@ -349,29 +309,29 @@ export function DashboardView({
             </div>
           </div>
 
-          {/* Causal Principle Card */}
+          {/* How Prediction Works Card */}
           <div className="bg-[#f5f3ec] border border-[#d8d3c7] rounded p-4 text-[#3c4249]">
             <div className="flex items-center space-x-2 text-xs font-mono uppercase tracking-wider text-[#1c3838] font-bold mb-1.5">
               <ScaleIcon className="w-4 h-4 text-[#1c3838]" />
-              <span>Causal Judicial Engine</span>
+              <span>How prediction works</span>
             </div>
 
             <p className="text-xs leading-relaxed text-[#444a52]">
-              CaseLens connects <strong>precedent retrieval</strong> directly to <strong>time-to-resolution prediction</strong>:
+              Resolution time is estimated from case metadata combined with precedent strength features:
             </p>
 
             <div className="mt-3 space-y-1.5 text-xs font-mono">
               <div className="p-1.5 bg-white rounded border border-[#dfdbd0] flex items-center justify-between text-[11px]">
-                <span className="text-[#636a73]">1. High Precedent Match:</span>
-                <span className="font-semibold text-[#1f5938]">Settles Legal Issues</span>
+                <span className="text-[#636a73]">1. Precedent Similarity:</span>
+                <span className="font-semibold text-[#181a1d]">Dense embedding distance</span>
               </div>
               <div className="p-1.5 bg-white rounded border border-[#dfdbd0] flex items-center justify-between text-[11px]">
-                <span className="text-[#636a73]">2. Lower Hearing Velocity:</span>
-                <span className="font-semibold text-[#1f5938]">Reduces Adjournments</span>
+                <span className="text-[#636a73]">2. Case Characteristics:</span>
+                <span className="font-semibold text-[#181a1d]">Hearings, court tier, case type</span>
               </div>
               <div className="p-1.5 bg-white rounded border border-[#dfdbd0] flex items-center justify-between text-[11px]">
-                <span className="text-[#636a73]">3. Automated Priority:</span>
-                <span className="font-semibold text-[#73202f]">Fast-Tracks Ready Cases</span>
+                <span className="text-[#636a73]">3. Priority Ranking:</span>
+                <span className="font-semibold text-[#181a1d]">Relative delay vs. median</span>
               </div>
             </div>
           </div>

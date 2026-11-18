@@ -58,6 +58,13 @@ data/
 ml/models/
 ml/metrics/
 
+# ── EXCEPTIONS: small FAISS index shipped to Render (≤ 5 MB) ─────────────────
+!backend/data/index/judgments.faiss
+!backend/data/index/id_map.json
+!backend/data/index/tfidf.pkl
+!ml/models/metrics.json
+!ml/models/caselens_regressor.joblib
+
 # ── Misc ──────────────────────────────────────────────────────────────────────
 .pytest_cache/
 .ruff_cache/

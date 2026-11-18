@@ -71,14 +71,22 @@ class VectorIndexRepository:
 
             log.info("FAISS index loaded. Total vectors: %d", self.index.ntotal)
 
-            # Load SentenceTransformer model
-            from sentence_transformers import SentenceTransformer
-
+            # Prefer fastembed (ONNX, no torch, fits Render 512 MB).
+            # Fall back to sentence-transformers for local dev on Python 3.13+.
             model_name = os.environ.get(
                 "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
             )
-            log.info("Loading embedding model: %s...", model_name)
-            self.embedding_model = SentenceTransformer(model_name)
+            try:
+                from fastembed import TextEmbedding
+                self.embedding_model = TextEmbedding(model_name=model_name)
+                self._embed_fn = "fastembed"
+                log.info("Loaded fastembed model: %s", model_name)
+            except Exception as fe_err:
+                log.warning("fastembed unavailable (%s); falling back to sentence-transformers", fe_err)
+                from sentence_transformers import SentenceTransformer
+                self.embedding_model = SentenceTransformer(model_name)
+                self._embed_fn = "sbert"
+                log.info("Loaded SentenceTransformer model: %s", model_name)
 
             # Load TF-IDF baseline if present
             if tfidf_path.exists():
@@ -104,12 +112,15 @@ class VectorIndexRepository:
         if not self.is_ready or self.index is None or self.embedding_model is None:
             return []
 
-        # Encode and normalize query vector (shape: 1, dim)
-        query_vec = self.embedding_model.encode(
-            [query],
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-        ).astype("float32")
+        # fastembed returns a generator; list() materializes it into numpy arrays
+        if getattr(self, "_embed_fn", "sbert") == "fastembed":
+            query_vec = np.array(list(self.embedding_model.embed([query])), dtype="float32")
+            norm = np.linalg.norm(query_vec, axis=1, keepdims=True)
+            query_vec = query_vec / np.where(norm == 0, 1, norm)
+        else:
+            query_vec = self.embedding_model.encode(
+                [query], normalize_embeddings=True, convert_to_numpy=True
+            ).astype("float32")
 
         actual_k = min(top_k, self.index.ntotal)
         if actual_k <= 0:
