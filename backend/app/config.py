@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # Database
-    database_url: str
+    database_url: str = "postgresql://caselens:changeme@localhost:5432/caselens_db"
 
     @property
     def sqlalchemy_database_url(self) -> str:
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
         return url
 
     # Auth
-    secret_key: str
+    secret_key: str = "caselens-secret-key-development-override-2024"
     access_token_expire_minutes: int = 60
 
     # External APIs
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # App
     environment: str = "development"
     log_level: str = "info"
-    demo_mode: bool = False
+    demo_mode: bool = True
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
     @property
@@ -42,6 +42,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
 

@@ -1,28 +1,27 @@
-.PHONY: dev test test-backend test-frontend seed ingest lint
+.PHONY: dev-backend dev-frontend lint check
 
-# Run development servers locally
-dev:
-	@echo "Starting backend and frontend..."
-	docker compose up
+# Run FastAPI backend locally (requires .venv with Python 3.11)
+dev-backend:
+	.venv\Scripts\uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Run test suites
-test: test-backend test-frontend
+# Run Next.js frontend locally
+dev-frontend:
+	npm run dev
 
-test-backend:
-	pytest backend/tests/ -v
+# Type-check + lint
+check:
+	npx tsc --noEmit
+	npx eslint src/
 
-test-frontend:
-	npm run build
-
-# Code linting
+# Code linting only
 lint:
 	ruff check backend/
 	npx eslint src/
 
-# Database initialization & seeding
+# Database seeding (requires running PostgreSQL)
 seed:
-	python backend/scripts/seed.py
+	python scripts/seed.py
 
-# Ingest 200 judgments from ILDC
+# Ingest judgments from ILDC dataset
 ingest:
 	python scripts/ingest.py --source huggingface --model minilm --limit 200

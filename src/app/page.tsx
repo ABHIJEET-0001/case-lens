@@ -22,10 +22,19 @@ import { ModelReportView } from "@/components/views/ModelReportView";
 // import { LoginView } from "@/components/views/LoginView"; // Removed login view
 import { SettingsView } from "@/components/views/SettingsView";
 
+// Default user to bypass all login/signup screens completely
+const DEFAULT_USER: UserProfile = {
+  id: "user-judge-01",
+  email: "justice.sharma@sci.gov.in",
+  fullName: "Justice K. Sharma",
+  role: "judge",
+  isActive: true,
+};
+
 export default function CaseLensApp() {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
   const [userRole, setUserRole] = useState<UserRole>("judge");
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile>(DEFAULT_USER);
   const [selectedBench, setSelectedBench] = useState<string>("all");
   const [cases, setCases] = useState<CourtCase[]>([]);
   const [precedents, setPrecedents] = useState<Precedent[]>([]);
@@ -54,12 +63,21 @@ export default function CaseLensApp() {
   // 1. Load initial user profile & check auth session
   useEffect(() => {
     async function initAuth() {
-      const user = await fetchCurrentUser();
-      if (user) {
-        setCurrentUser(user);
-        setUserRole(user.role);
+      try {
+        const user = await fetchCurrentUser();
+        if (user) {
+          setCurrentUser(user);
+          setUserRole(user.role);
+          return;
+        }
+      } catch (e) {
+        // ignore fetch errors
       }
-      // No auto demo-switch: show login screen instead
+      if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
+        const demoUser = { id: 'demo', name: 'Demo User', role: 'judge' } as any;
+        setCurrentUser(demoUser);
+        setUserRole(demoUser.role);
+      }
     }
     initAuth();
   }, []);
@@ -113,11 +131,8 @@ export default function CaseLensApp() {
   // Handle logout
   const handleLogout = async () => {
     clearStoredToken();
-    const clerkUser = await switchDemoRole("clerk");
-    if (clerkUser) {
-      setCurrentUser(clerkUser);
-      setUserRole(clerkUser.role);
-    }
+    setCurrentUser(DEFAULT_USER);
+    setUserRole("judge");
   };
 
   const selectedCase =
@@ -221,20 +236,6 @@ export default function CaseLensApp() {
     setSelectedCaseId(newCase.id);
     setActiveTab("case-detail");
   };
-
-  if (!currentUser) {
-  // No login UI – render nothing until a user is set programmatically
-  return null;
-}
-    return (
-      <LoginView
-        onLogin={(user) => {
-          setCurrentUser(user);
-          setUserRole(user.role);
-        }}
-      />
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#fcfbf9] text-[#171a1d] flex flex-col font-sans selection:bg-[#1c3838] selection:text-white">

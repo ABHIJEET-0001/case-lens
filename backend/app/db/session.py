@@ -10,12 +10,18 @@ from typing import Generator
 
 from app.config import settings
 
-engine = create_engine(
-    settings.sqlalchemy_database_url,
-    pool_pre_ping=True,     # drops stale connections before using them
-    pool_size=10,
-    max_overflow=20,
-)
+if settings.sqlalchemy_database_url.startswith("sqlite"):
+    engine = create_engine(
+        settings.sqlalchemy_database_url,
+        connect_args={"check_same_thread": False},
+    )
+else:
+    engine = create_engine(
+        settings.sqlalchemy_database_url,
+        pool_pre_ping=True,     # drops stale connections before using them
+        pool_size=10,
+        max_overflow=20,
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
