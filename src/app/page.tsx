@@ -19,7 +19,7 @@ import { CasesView } from "@/components/views/CasesView";
 import { CaseDetailView } from "@/components/views/CaseDetailView";
 import { PriorityQueueView } from "@/components/views/PriorityQueueView";
 import { ModelReportView } from "@/components/views/ModelReportView";
-import { LoginView } from "@/components/views/LoginView";
+// import { LoginView } from "@/components/views/LoginView"; // Removed login view
 import { SettingsView } from "@/components/views/SettingsView";
 
 export default function CaseLensApp() {
