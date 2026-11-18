@@ -128,11 +128,19 @@ export default function CaseLensApp() {
     }
   };
 
-  // Handle logout
+  // Handle Sign Out / Reset Session — clears all local state and reloads fallback data
   const handleLogout = async () => {
     clearStoredToken();
+    // Reset all session state
     setCurrentUser(DEFAULT_USER);
     setUserRole("judge");
+    setActiveTab("dashboard");
+    setSelectedBench("all");
+    setSelectedCaseId("");
+    setResearchQuery("");
+    setCasesError(null);
+    // Reload cases fresh (removes any locally-added fake cases)
+    await loadCases("all");
   };
 
   const selectedCase =

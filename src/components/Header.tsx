@@ -186,7 +186,7 @@ export function Header({
                     className="w-full text-left font-mono text-[11px] text-[#1c3838] hover:text-[#142828] font-medium py-1 px-1 rounded hover:bg-[#efece5] transition-colors flex items-center justify-between"
                   >
                     <span>Platform Settings & Telemetry</span>
-                    <span className="text-[10px] bg-[#e4dfd5] px-1 rounded text-[#555b63]">7</span>
+                    <span className="text-[10px] text-[#8a919c]">\u2192</span>
                   </button>
                   <button
                     type="button"
