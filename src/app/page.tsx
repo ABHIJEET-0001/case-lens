@@ -223,6 +223,9 @@ export default function CaseLensApp() {
   };
 
   if (!currentUser) {
+  // No login UI – render nothing until a user is set programmatically
+  return null;
+}
     return (
       <LoginView
         onLogin={(user) => {
